@@ -1,151 +1,167 @@
+(() => {
+  const qs = (s, r = document) => r.querySelector(s);
+  const qsa = (s, r = document) => [...r.querySelectorAll(s)];
 
-async function postJSON(url, body){
-  const res = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)});
-  if(!res.ok) throw new Error(await res.text());
-  return res.json();
-}
-async function getJSON(url){
-  const res = await fetch(url);
-  if(!res.ok) throw new Error(await res.text());
-  return res.json();
-}
+  // Elements (adjust selectors if your HTML differs)
+  const el = {
+    product: qs('#product'),
+    audience: qs('#audience'),
+    tone: qs('#tone'),
+    notes: qs('#notes'),
+    aspect: qs('#aspect'),            // e.g., "9:16 (Reel/Story)", "16:9 ..."
+    duration: qs('#duration'),        // e.g., "5s"
+    model: qs('#model'),              // dropdown with Gen-4 Turbo etc.
+    cta: qs('#cta'),
+    refUrl: qs('#refimg'),            // optional URL box in UI
+    btnScript: qs('#btn-script'),
+    btnTTS: qs('#btn-tts'),
+    btnVideo: qs('#btn-video'),
+    video: qs('#video'),
+    scriptOut: qs('#script-out'),
+    voice: qs('#voice'),
 
-const el = id => document.getElementById(id);
-const product = el('product');
-const audience = el('audience');
-const goal = el('goal');
-const tone = el('tone');
-const visual = el('visual');
-const cta = el('cta');
-const ratio = el('ratio');
-const duration = el('duration');
-const model = el('model');
-const refimg = el('refimg');
+    // Upload helpers
+    uploadWrap: qs('#upload-wrap'),
+    uploadBtn: qs('#upload-btn'),
+    uploadStatus: qs('#upload-status')
+  };
 
-const btnScript = el('btnScript');
-const btnTTS = el('btnTTS');
-const btnVideo = el('btnVideo');
+  // Default to Gen-4 Turbo on load; optionally hide Gen-3 choices
+  document.addEventListener('DOMContentLoaded', () => {
+    if (el.model) {
+      const optG4 = [...el.model.options].find(o =>
+        /gen-?4/i.test(o.value) || /gen-?4/i.test(o.text)
+      );
+      if (optG4) el.model.value = optG4.value;
 
-const preview = el('preview');
-const scriptBox = el('script');
-const voice = el('voice');
-const audio = el('audio');
-const dlAudio = el('dlAudio');
-const video = el('video');
-const status = el('status');
-
-function buildPrompt(){
-  const p = product.value.trim() || '(product?)';
-  const a = audience.value.trim() || '(audience?)';
-  const g = goal.value.trim() || '(goal?)';
-  const t = tone.value.trim() || 'energetic, clean, high-contrast, fast cuts';
-  const v = visual.value.trim() || '';
-  const c = cta.value.trim() || 'Shop now';
-
-  return `Create a ${duration.value}s vertical ad for ${p}. Audience: ${a}. Goal: ${g}.
-Style: ${t}. Visual notes: ${v}. Include a clear on-screen call to action: "${c}". 
-Use dynamic camera moves and product hero shots. Keep it brand-safe.`;
-}
-
-function buildScriptPrompt(){
-  return `You are a performance ad copywriter. Write a ${duration.value}s voiceover script for a video ad.
-Product/offer: ${product.value || '(not provided)'}
-Audience: ${audience.value || '(not provided)'}
-Goal: ${goal.value || '(not provided)'}
-Tone: ${tone.value || 'energetic, clean'}
-CTA: ${cta.value || 'Shop now'}
-
-Requirements:
-- 2–3 short punchy lines, total ${duration.value==='5'?'25-35':'45-65'} words max.
-- Plain language, no jargon.
-- End with the CTA verbatim.
-Return only the script text.`;
-}
-
-function lockUI(locked){
-  [btnScript, btnTTS, btnVideo].forEach(b=>b.disabled = locked);
-}
-
-function toast(msg){ status.textContent = msg; }
-
-// Step 1: Generate Script
-btnScript.addEventListener('click', async ()=>{
-  try{
-    lockUI(true);
-    preview.value = buildPrompt() + "\n\n---\nVOICEOVER REQUEST\n" + buildScriptPrompt();
-    toast("Generating script...");
-    const data = await postJSON('/api/script', { prompt: buildScriptPrompt() });
-    scriptBox.value = data.script;
-    btnTTS.disabled = false;
-    toast("Script ready.");
-  }catch(e){
-    console.error(e); toast("Script failed: " + e.message);
-  }finally{ lockUI(false); }
-});
-
-// Step 2: TTS
-btnTTS.addEventListener('click', async ()=>{
-  try{
-    lockUI(true);
-    toast("Generating voiceover (MP3)...");
-    const data = await postJSON('/api/tts', { text: scriptBox.value, voice: voice.value });
-    const b64 = data.base64; const mime = data.mime || 'audio/mpeg';
-    const src = `data:${mime};base64,${b64}`;
-    audio.src = src; audio.style.display='block';
-    dlAudio.href = src; dlAudio.style.display='inline-block';
-    toast("Voiceover ready.");
-  }catch(e){
-    console.error(e); toast("TTS failed: " + e.message);
-  }finally{ lockUI(false); }
-});
-
-// Step 3: Video (text->image->video)
-btnVideo.addEventListener('click', async ()=>{
-  try{
-    lockUI(true);
-    const promptText = buildPrompt();
-    preview.value = promptText;
-
-    // Use provided ref image or synthesize from text
-    let promptImage = refimg.value.trim();
-    if(!promptImage){
-      toast("Generating first frame (image)...");
-      const img = await postJSON('/api/runway/text_to_image', { promptText, ratio: ratio.value });
-      promptImage = img.imageUrl;
+      // Optional: remove Gen-3 from view
+      [...el.model.options].forEach(o => {
+        if (/gen-?3/i.test(o.text) || /gen3/i.test(o.value)) o.remove();
+      });
     }
+  });
 
-    toast("Starting video generation...");
-    const start = await postJSON('/api/runway/image_to_video', {
-      promptImage, promptText, ratio: ratio.value, duration: parseInt(duration.value,10), model: model.value
-    });
-    const taskId = start.taskId;
-    toast("Rendering video… this can take 60–120s. Please keep this tab open.");
+  // -------- Script generation (local, simple) ----------
+  function buildAdScript() {
+    const p = (el.product?.value || '').trim();
+    const a = (el.audience?.value || '').trim();
+    const t = (el.tone?.value || '').trim();
+    const n = (el.notes?.value || '').trim();
+    const cta = (el.cta?.value || '').trim() || 'Shop now!';
+    return (
+`Glow naturally with our vegan skincare.
+Pure ingredients, no harmful chemicals.
+Your skin deserves the best.
+${cta}`
+    );
+  }
 
-    // poll
-    let done = false;
-    while(!done){
-      await new Promise(r=>setTimeout(r, 5000 + Math.random()*1000));
-      const s = await getJSON('/api/runway/task?id=' + encodeURIComponent(taskId));
-      if(s.status === 'SUCCEEDED' && s.output && s.output.length){
-        video.src = s.output[0];
-        video.style.display='block';
-        toast("Video ready.");
-        done = true;
-      }else if(s.status === 'FAILED' || s.status === 'CANCELED'){
-        throw new Error("Task " + s.status);
-      }else{
-        console.log("Status:", s.status);
+  el.btnScript?.addEventListener('click', () => {
+    const s = buildAdScript();
+    if (el.scriptOut) el.scriptOut.value = s;
+  });
+
+  // -------- TTS (your existing /api/tts) ----------
+  el.btnTTS?.addEventListener('click', async () => {
+    try {
+      const text = el.scriptOut?.value || buildAdScript();
+      const r = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text, voice: el.voice?.value || 'alloy' })
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = qs('#audio');
+      if (audio) {
+        audio.src = url;
+        audio.play().catch(()=>{});
       }
+    } catch (e) {
+      console.error(e);
+      alert('TTS failed: ' + e.message);
     }
-  }catch(e){
-    console.error(e); toast("Video failed: " + e.message);
-  }finally{ lockUI(false); }
-});
+  });
 
-// Enable video button after any brief change (so user can run it directly)
-[product,audience,goal,tone,visual,cta,ratio,duration,model,refimg].forEach(i=>{
-  i.addEventListener('input', ()=>{ btnVideo.disabled = false; });
-});
+  // -------- Image Upload (Vercel Blob) ----------
+  let uploadedImageUrl = '';
+  el.uploadBtn?.addEventListener('click', async () => {
+    try {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = 'image/*';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
 
-// init
-btnVideo.disabled = false;
+        el.uploadStatus && (el.uploadStatus.textContent = 'Uploading...');
+        const r = await fetch(`/api/upload?filename=${encodeURIComponent(file.name)}&contentType=${encodeURIComponent(file.type || 'application/octet-stream')}`, {
+          method: 'POST',
+          body: file
+        });
+        if (!r.ok) throw new Error(await r.text());
+        const j = await r.json();
+        uploadedImageUrl = j.url;
+        el.uploadStatus && (el.uploadStatus.textContent = 'Image Ready ✓');
+      };
+      input.click();
+    } catch (e) {
+      console.error(e);
+      el.uploadStatus && (el.uploadStatus.textContent = 'Upload failed');
+      alert('Upload failed: ' + e.message);
+    }
+  });
+
+  // -------- Generate Video ----------
+  el.btnVideo?.addEventListener('click', async () => {
+    try {
+      const text = el.scriptOut?.value || buildAdScript();
+      const body = {
+        promptText: text,
+        ratio: el.aspect?.value || el.aspect?.selectedOptions?.[0]?.text || '9:16',
+        duration: (el.duration?.value || '5').toString().replace('s',''),
+        model: el.model?.value || 'gen4_turbo'
+      };
+      if (uploadedImageUrl) body.promptImage = uploadedImageUrl;
+      else if (el.refUrl?.value) body.promptImage = el.refUrl.value.trim(); // optional
+
+      const r = await fetch('/api/runway/image_to_video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!r.ok) throw new Error(await r.text());
+      const { taskId } = await r.json();
+
+      // Poll task
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      let tries = 0, status = 'PENDING', out = [];
+      while (tries < 60) {
+        await wait(4000 + Math.floor(Math.random()*800));
+        const pr = await fetch(`/api/runway/task?id=${encodeURIComponent(taskId)}`);
+        const pj = await pr.json();
+        status = pj.status;
+        out = pj.output || [];
+        if (status === 'SUCCEEDED' && out.length) break;
+        if (['FAILED','CANCELED'].includes(status)) break;
+        tries++;
+      }
+
+      if (status === 'SUCCEEDED' && out.length) {
+        const v = qs('#video-player') || document.createElement('video');
+        v.id = 'video-player';
+        v.controls = true;
+        v.autoplay = true;
+        v.playsInline = true;
+        v.src = out[0];
+        el.video?.replaceChildren(v);
+      } else {
+        el.video && (el.video.textContent = `Video failed: ${status}`);
+      }
+    } catch (e) {
+      console.error(e);
+      el.video && (el.video.textContent = 'Video failed: ' + e.message);
+    }
+  });
+})();
