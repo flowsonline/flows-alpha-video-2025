@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FLOWS Video Generator</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <div class="wrap">
+    <header class="head">
+      <h1>FLOWS — Video Generator</h1>
+      <p class="sub">Create short ads/reels with script + optional voiceover. Powered by Runway + OpenAI.</p>
+    </header>
+
+    <section class="card">
+      <h2 class="h2">Ad Brief</h2>
+      <div class="grid">
+        <label>Product / Offer
+          <input id="product" placeholder="e.g., Vegan skincare kit 20% off">
+        </label>
+        <label>Target Audience
+          <input id="audience" placeholder="e.g., Gen Z self-care, USA">
+        </label>
+        <label>Goal
+          <input id="goal" placeholder="e.g., drive website clicks / newsletter signups">
+        </label>
+        <label>Tone & Style
+          <input id="tone" placeholder="e.g., energetic, clean, high-contrast, fast cuts">
+        </label>
+        <label>Visual Notes (optional)
+          <input id="visual" placeholder="e.g., macro product shots, glossy lighting, neon accents">
+        </label>
+        <label>Call to Action
+          <input id="cta" placeholder="e.g., Shop now · Link in bio">
+        </label>
+      </div>
+
+      <div class="row">
+        <label>Aspect
+          <select id="ratio">
+            <option value="768:1280">9:16 (Reel/Story)</option>
+            <option value="1280:720">16:9 (YouTube/TikTok landscape)</option>
+            <option value="1080:1080">1:1 (Square Post)</option>
+          </select>
+        </label>
+        <label>Duration
+          <select id="duration">
+            <option value="5">5s</option>
+            <option value="10">10s</option>
+          </select>
+        </label>
+        <label>Model
+          <select id="model">
+            <option value="gen3_alpha">Gen-3 Alpha</option>
+            <option value="gen3_alpha_turbo">Gen-3 Alpha Turbo</option>
+            <option value="gen4_turbo">Gen-4 Turbo</option>
+          </select>
+        </label>
+        <label>Reference Image URL (optional)
+          <input id="refimg" placeholder="https://...">
+        </label>
+      </div>
+
+      <div class="row">
+        <button id="btnScript" class="btn">1) Generate Script</button>
+        <button id="btnTTS" class="btn" disabled>2) Make Voiceover (MP3)</button>
+        <button id="btnVideo" class="btn" disabled>3) Generate Video</button>
+      </div>
+
+      <details class="pre">
+        <summary>Prompt & Script Preview</summary>
+        <textarea id="preview" readonly></textarea>
+      </details>
+    </section>
+
+    <section class="cols card">
+      <div>
+        <h3 class="h3">Script / Voiceover</h3>
+        <label>Voice
+          <select id="voice">
+            <option value="alloy">Alloy</option>
+            <option value="verse">Verse</option>
+            <option value="aria">Aria</option>
+          </select>
+        </label>
+        <textarea id="script" placeholder="Your 15–30s ad script will appear here." rows="8"></textarea>
+        <div class="row">
+          <a id="dlAudio" class="btn secondary" download="voiceover.mp3" style="display:none">⬇ Download MP3</a>
+          <audio id="audio" controls style="width:100%; display:none"></audio>
+        </div>
+      </div>
+
+      <div>
+        <h3 class="h3">Video</h3>
+        <video id="video" controls playsinline style="width:100%; display:none"></video>
+        <div id="status" class="status"></div>
+      </div>
+    </section>
+
+    <footer class="foot">
+      <small>v1 — preview-only mux (separate MP4 + MP3). Add ffmpeg.wasm later for export with VO.</small>
+    </footer>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
