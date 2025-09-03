@@ -1,34 +1,70 @@
-function setCORS(res){
+// Serverless: POST /api/runway/image_to_video
+// Starts an image_to_video task (text-only or with uploaded image)
+// Maps any Gen-3 selection → gen4_turbo and enforces Runway-approved ratios
+
+function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
+function parseBody(req) {
+  if (!req.body) return {};
+  if (typeof req.body === 'string') {
+    try { return JSON.parse(req.body); } catch { return {}; }
+  }
+  return req.body;
+}
+
+// Map friendly UI inputs to Runway-accepted ratios
+function inferRatio(input = '') {
+  const s = String(input).toLowerCase();
+  const allowed = new Set(['720:1280','1080:1920','1280:720','1920:1080','1024:1024','1080:1080']);
+
+  // UI labels
+  if (s.includes('9:16') || s.includes('reel') || s.includes('story') || s.includes('portrait')) return '720:1280';
+  if (s.includes('16:9') || s.includes('landscape') || s.includes('youtube') || s.includes('tiktok')) return '1280:720';
+  if (s.includes('1:1') || s.includes('square')) return '1024:1024';
+
+  // Raw WxH formats like "1280:720" or "1080x1920"
+  const m = s.match(/(\d{3,4})\s*[:x]\s*(\d{3,4})/);
+  if (m) {
+    const val = `${m[1]}:${m[2]}`;
+    if (allowed.has(val)) return val;
+  }
+
+  // Safe default (vertical)
+  return '720:1280';
+}
+
+function normalizeModel(raw = '') {
+  const s = String(raw).toLowerCase();
+  if (s.includes('gen4')) return 'gen4_turbo';
+  if (s.includes('gen3')) return 'gen4_turbo'; // upgrade
+  return 'gen4_turbo';
+}
+
 module.exports = async (req, res) => {
-  if (req.method === 'OPTIONS') { setCORS(res); return res.status(200).end(); }
+  setCORS(res);
+  if (req.method === 'OPTIONS') return res.status(200).end();
   if (req.method !== 'POST') return res.status(405).send('Method not allowed');
+
   try {
     const RUNWAY_API_KEY = process.env.RUNWAY_API_KEY;
-    if (!RUNWAY_API_KEY) throw new Error('Missing RUNWAY_API_KEY');
-    const body = req.body || {};
-    const promptImage = body.promptImage;
-    const promptText = body.promptText || '';
-    let ratio = body.ratio || '768:1280';
-    if (!['768:1280','1280:720','1280:768','1024:1024'].includes(ratio)) ratio = '768:1280';
+    if (!RUNWAY_API_KEY) return res.status(500).send('Missing RUNWAY_API_KEY');
 
-    // Map UI selections to valid model IDs
-    const rawModel = (body.model || '').toString().toLowerCase();
-    let model = 'gen4_turbo';
-    if (rawModel.includes('gen4')) model = 'gen4_turbo'; // normalize all gen4 variants to turbo
-    if (rawModel.includes('gen3')) model = 'gen4_turbo'; // force upgrade (gen3 not available on this API)
+    const body = parseBody(req);
+    const promptText = body.promptText || body.prompt || '';
+    const ratio = inferRatio(body.ratio || body.aspect || '');
+    const model = normalizeModel(body.model);
+    const duration = Number(body.duration) > 0 ? Math.min(Number(body.duration), 10) : 5;
 
-    const duration = typeof body.duration === 'number' ? body.duration : 5;
+    let promptImage = body.promptImage; // optional
 
-    if(!promptImage && !promptText) return res.status(400).send('Provide promptImage or promptText');
+    // If no image provided, generate a seed image from text first
+    if (!promptImage) {
+      if (!promptText) return res.status(400).send('Provide promptText or promptImage');
 
-    // If only text provided, auto-generate a seed image first
-    let image = promptImage;
-    if(!image) {
       const r0 = await fetch('https://api.dev.runwayml.com/v1/text_to_image', {
         method: 'POST',
         headers: {
@@ -39,28 +75,38 @@ module.exports = async (req, res) => {
         body: JSON.stringify({
           model: 'gen4_image',
           promptText,
-          ratio: ratio === '1280:720' ? '1280:720' : (ratio === '1024:1024' ? '1024:1024' : '768:1280')
+          ratio
         })
       });
-      if(!r0.ok) { const t0 = await r0.text(); return res.status(r0.status).send(t0); }
+      if (!r0.ok) return res.status(r0.status).send(await r0.text());
       const start0 = await r0.json();
-      const id0 = start0.id;
+
+      // Poll for seed image
       const wait = ms => new Promise(r => setTimeout(r, ms));
-      let tries = 0; let task0;
-      while(tries < 36) {
-        const pr0 = await fetch(`https://api.dev.runwayml.com/v1/tasks/${id0}`, {
-          headers: { 'Authorization': `Bearer ${RUNWAY_API_KEY}`, 'X-Runway-Version': '2024-11-06' }
+      let tries = 0;
+      while (tries < 36) {
+        const pr = await fetch(`https://api.dev.runwayml.com/v1/tasks/${start0.id}`, {
+          headers: {
+            'Authorization': `Bearer ${RUNWAY_API_KEY}`,
+            'X-Runway-Version': '2024-11-06'
+          }
         });
-        if(!pr0.ok) { const tt0 = await pr0.text(); return res.status(pr0.status).send(tt0); }
-        task0 = await pr0.json();
-        if(task0.status === 'SUCCEEDED' && task0.output && task0.output.length) { image = task0.output[0]; break; }
-        if(['FAILED','CANCELED'].includes(task0.status)) return res.status(500).send('text_to_image failed');
-        await wait(5000 + Math.floor(Math.random()*1000));
+        if (!pr.ok) return res.status(pr.status).send(await pr.text());
+        const task = await pr.json();
+        if (task.status === 'SUCCEEDED' && task.output?.length) {
+          promptImage = task.output[0];
+          break;
+        }
+        if (['FAILED', 'CANCELED'].includes(task.status)) {
+          return res.status(500).send('text_to_image failed');
+        }
+        await wait(5000 + Math.floor(Math.random() * 800));
         tries++;
       }
-      if(!image) return res.status(504).send('Timeout waiting for seed image');
+      if (!promptImage) return res.status(504).send('Timeout waiting for seed image');
     }
 
+    // Start image_to_video
     const r = await fetch('https://api.dev.runwayml.com/v1/image_to_video', {
       method: 'POST',
       headers: {
@@ -70,17 +116,17 @@ module.exports = async (req, res) => {
       },
       body: JSON.stringify({
         model,
-        promptImage: image,
+        promptImage,
         promptText,
         ratio,
         duration
       })
     });
-    if(!r.ok) { const t = await r.text(); return res.status(r.status).send(t); }
+
+    if (!r.ok) return res.status(r.status).send(await r.text());
     const start = await r.json();
-    setCORS(res);
     return res.json({ taskId: start.id });
-  } catch(e) {
+  } catch (e) {
     console.error(e);
     return res.status(500).send(e.message || 'Server error');
   }
