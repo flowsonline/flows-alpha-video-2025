@@ -38,34 +38,41 @@
 
       <div class="row">
         <label>Aspect
+          <!-- IMPORTANT: values are Runway-approved sizes -->
           <select id="ratio">
-            <option value="768:1280">9:16 (Reel/Story)</option>
+            <option value="720:1280">9:16 (Reel/Story)</option>
             <option value="1280:720">16:9 (YouTube/TikTok landscape)</option>
-            <option value="1080:1080">1:1 (Square Post)</option>
+            <option value="1024:1024">1:1 (Square Post)</option>
           </select>
         </label>
+
         <label>Duration
           <select id="duration">
             <option value="5">5s</option>
             <option value="10">10s</option>
           </select>
         </label>
+
         <label>Model
           <select id="model">
-            <option value="gen3_alpha">Gen-3 Alpha</option>
-            <option value="gen3_alpha_turbo">Gen-3 Alpha Turbo</option>
-            <option value="gen4_turbo">Gen-4 Turbo</option>
+            <option value="gen4_turbo" selected>Gen-4 Turbo</option>
           </select>
         </label>
+
         <label>Reference Image URL (optional)
           <input id="refimg" placeholder="https://...">
         </label>
       </div>
 
+      <div class="row" id="upload-wrap">
+        <button id="uploadBtn" class="btn secondary" type="button">Upload Image (optional)</button>
+        <span id="uploadStatus" class="status"></span>
+      </div>
+
       <div class="row">
-        <button id="btnScript" class="btn">1) Generate Script</button>
-        <button id="btnTTS" class="btn" disabled>2) Make Voiceover (MP3)</button>
-        <button id="btnVideo" class="btn" disabled>3) Generate Video</button>
+        <button id="btnScript" class="btn" type="button">1) Generate Script</button>
+        <button id="btnTTS" class="btn" type="button" disabled>2) Make Voiceover (MP3)</button>
+        <button id="btnVideo" class="btn" type="button" disabled>3) Generate Video</button>
       </div>
 
       <details class="pre">
